@@ -1,195 +1,213 @@
 """
-Módulo de definição e treinamento do modelo LSTM.
-Arquitetura: LSTM multicamadas para predição de séries temporais financeiras.
+Modelo LSTM para prever preço de ações da Petrobras.
+Usa PyTorch para construir e treinar a rede neural.
 """
 
 import os
 import numpy as np
-from tensorflow.keras.models import Sequential, load_model
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.optimizers import Adam
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 
 
-def criar_modelo_lstm(input_shape: tuple, units_lstm: list = None) -> Sequential:
-    """
-    Cria a arquitetura do modelo LSTM.
-    
-    Arquitetura:
-        - 2 camadas LSTM com Dropout para regularização
-        - 1 camada Dense de saída
-    
-    Args:
-        input_shape: Shape de entrada (timesteps, features)
-        units_lstm: Lista com número de neurônios por camada LSTM
-    
-    Returns:
-        Modelo Keras compilado
-    """
-    if units_lstm is None:
-        units_lstm = [50, 50]
-    
-    print(f"\nCriando modelo LSTM...")
-    print(f"Input shape: {input_shape}")
-    print(f"Neurônios por camada: {units_lstm}")
-    
-    model = Sequential()
-    
-    # Primeira camada LSTM - return_sequences=True para empilhar LSTMs
-    model.add(LSTM(
-        units=units_lstm[0],
-        return_sequences=True,
-        input_shape=input_shape
-    ))
-    model.add(Dropout(0.2))
-    
-    # Segunda camada LSTM
-    model.add(LSTM(
-        units=units_lstm[1],
-        return_sequences=False
-    ))
-    model.add(Dropout(0.2))
-    
-    # Camada de saída - um neurônio para predição do preço
-    model.add(Dense(units=1))
-    
-    # Compilar modelo
-    optimizer = Adam(learning_rate=0.001)
-    model.compile(optimizer=optimizer, loss='mean_squared_error', metrics=['mae'])
-    
-    model.summary()
-    
-    return model
+class ModeloLSTM(nn.Module):
+    """Rede LSTM para previsão de séries temporais de preços."""
+
+    def __init__(self, input_size=1, hidden_size=50, num_layers=2, dropout=0.2):
+        super(ModeloLSTM, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+
+        # camadas LSTM empilhadas
+        self.lstm = nn.LSTM(
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            batch_first=True,
+            dropout=dropout
+        )
+
+        # camada de saída
+        self.fc = nn.Linear(hidden_size, 1)
+
+    def forward(self, x):
+        # passa pela LSTM
+        out, _ = self.lstm(x)
+        # pega só a saída do último timestep
+        out = out[:, -1, :]
+        # camada linear final
+        out = self.fc(out)
+        return out
 
 
-def treinar_modelo(model: Sequential, X_train: np.ndarray, y_train: np.ndarray,
-                   X_test: np.ndarray, y_test: np.ndarray,
-                   epochs: int = 100, batch_size: int = 32,
-                   save_path: str = "models") -> dict:
+def criar_modelo(input_shape, hidden_size=50, num_layers=2):
     """
-    Treina o modelo LSTM com Early Stopping.
+    Cria o modelo LSTM.
     
-    Args:
-        model: Modelo Keras compilado
-        X_train: Dados de treino
-        y_train: Labels de treino
-        X_test: Dados de validação
-        y_test: Labels de validação
-        epochs: Número máximo de épocas
-        batch_size: Tamanho do batch
-        save_path: Diretório para salvar o modelo
-    
-    Returns:
-        Dicionário com histórico de treinamento e modelo treinado
+    Parâmetros:
+        input_shape: formato (timesteps, features)
+        hidden_size: neurônios na LSTM
+        num_layers: quantidade de camadas LSTM
     """
-    print(f"\nIniciando treinamento...")
-    print(f"Épocas: {epochs} | Batch size: {batch_size}")
-    
+    input_size = input_shape[1]
+    modelo = ModeloLSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+
+    n_params = sum(p.numel() for p in modelo.parameters())
+    print(f"\nModelo LSTM criado:")
+    print(f"  Input: {input_shape}")
+    print(f"  Hidden size: {hidden_size}")
+    print(f"  Camadas LSTM: {num_layers}")
+    print(f"  Parâmetros: {n_params:,}")
+    print(modelo)
+
+    return modelo
+
+
+def treinar_modelo(modelo, X_train, y_train, X_val, y_val,
+                   epochs=100, batch_size=32, lr=0.001, patience=10,
+                   save_path="models"):
+    """
+    Treina o modelo com early stopping.
+    Salva o melhor modelo baseado na loss de validação.
+    """
+    print(f"\n--- Treinamento ---")
+    print(f"Epochs: {epochs} | Batch: {batch_size} | LR: {lr} | Patience: {patience}")
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Device: {device}")
+    modelo = modelo.to(device)
+
+    # preparar dados
+    X_train_t = torch.FloatTensor(X_train).to(device)
+    y_train_t = torch.FloatTensor(y_train).reshape(-1, 1).to(device)
+    X_val_t = torch.FloatTensor(X_val).to(device)
+    y_val_t = torch.FloatTensor(y_val).reshape(-1, 1).to(device)
+
+    dataset = TensorDataset(X_train_t, y_train_t)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    # otimizador e loss
+    optimizer = torch.optim.Adam(modelo.parameters(), lr=lr)
+    loss_fn = nn.MSELoss()
+
+    # controle do early stopping
+    melhor_loss = float('inf')
+    contador_paciencia = 0
+    melhor_pesos = None
+
     os.makedirs(save_path, exist_ok=True)
-    model_path = os.path.join(save_path, "lstm_model.keras")
-    
-    # Callbacks
-    early_stop = EarlyStopping(
-        monitor='val_loss',
-        patience=10,
-        restore_best_weights=True,
-        verbose=1
-    )
-    
-    checkpoint = ModelCheckpoint(
-        filepath=model_path,
-        monitor='val_loss',
-        save_best_only=True,
-        verbose=1
-    )
-    
-    # Treinamento
-    history = model.fit(
-        X_train, y_train,
-        validation_data=(X_test, y_test),
-        epochs=epochs,
-        batch_size=batch_size,
-        callbacks=[early_stop, checkpoint],
-        verbose=1
-    )
-    
-    print(f"\nModelo salvo em {model_path}")
-    print(f"Melhor val_loss: {min(history.history['val_loss']):.6f}")
-    
-    return {
-        "model": model,
-        "history": history,
-        "model_path": model_path
-    }
+    model_path = os.path.join(save_path, "lstm_model.pth")
+
+    # historico para plotar depois
+    historico = {'loss': [], 'val_loss': [], 'mae': [], 'val_mae': []}
+
+    for epoch in range(epochs):
+        # treino
+        modelo.train()
+        loss_acumulada = 0
+        mae_acumulado = 0
+        n_batches = 0
+
+        for xb, yb in loader:
+            optimizer.zero_grad()
+            pred = modelo(xb)
+            loss = loss_fn(pred, yb)
+            loss.backward()
+            optimizer.step()
+
+            loss_acumulada += loss.item()
+            mae_acumulado += torch.mean(torch.abs(pred - yb)).item()
+            n_batches += 1
+
+        loss_treino = loss_acumulada / n_batches
+        mae_treino = mae_acumulado / n_batches
+
+        # validação
+        modelo.eval()
+        with torch.no_grad():
+            pred_val = modelo(X_val_t)
+            loss_val = loss_fn(pred_val, y_val_t).item()
+            mae_val = torch.mean(torch.abs(pred_val - y_val_t)).item()
+
+        historico['loss'].append(loss_treino)
+        historico['val_loss'].append(loss_val)
+        historico['mae'].append(mae_treino)
+        historico['val_mae'].append(mae_val)
+
+        # checa se melhorou
+        if loss_val < melhor_loss:
+            melhor_loss = loss_val
+            contador_paciencia = 0
+            melhor_pesos = modelo.state_dict().copy()
+            torch.save(modelo.state_dict(), model_path)
+        else:
+            contador_paciencia += 1
+
+        # print a cada 10 épocas
+        if (epoch + 1) % 10 == 0:
+            print(f"  Epoch {epoch+1}/{epochs} | loss: {loss_treino:.6f} | val_loss: {loss_val:.6f} | val_mae: {mae_val:.6f}")
+
+        # early stopping
+        if contador_paciencia >= patience:
+            print(f"\n  Early stopping! Parou na epoch {epoch+1}")
+            break
+
+    # restaurar melhor modelo
+    if melhor_pesos:
+        modelo.load_state_dict(melhor_pesos)
+
+    print(f"  Melhor val_loss: {melhor_loss:.6f}")
+    print(f"  Modelo salvo em: {model_path}")
+
+    return {"model": modelo, "history": historico, "model_path": model_path}
 
 
-def avaliar_modelo(model: Sequential, X_test: np.ndarray, y_test: np.ndarray,
-                   scaler) -> dict:
+def avaliar_modelo(modelo, X_test, y_test, scaler):
     """
-    Avalia o modelo nos dados de teste.
-    
-    Args:
-        model: Modelo treinado
-        X_test: Dados de teste
-        y_test: Labels de teste
-        scaler: MinMaxScaler para inverter normalização
-    
-    Returns:
-        Dicionário com métricas de avaliação
+    Avalia o modelo calculando MAE, RMSE, MAPE e R².
+    Inverte a normalização para comparar em valores reais (R$).
     """
     from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-    
-    print("\nAvaliando modelo...")
-    
-    # Predições
-    y_pred_normalizado = model.predict(X_test)
-    
-    # Inverter normalização para obter valores reais
-    y_pred = scaler.inverse_transform(y_pred_normalizado)
+
+    device = next(modelo.parameters()).device
+    modelo.eval()
+
+    with torch.no_grad():
+        X_t = torch.FloatTensor(X_test).to(device)
+        pred_norm = modelo(X_t).cpu().numpy()
+
+    # voltar pra escala original
+    y_pred = scaler.inverse_transform(pred_norm)
     y_real = scaler.inverse_transform(y_test.reshape(-1, 1))
-    
-    # Calcular métricas
+
+    # métricas
+    mae = mean_absolute_error(y_real, y_pred)
     mse = mean_squared_error(y_real, y_pred)
     rmse = np.sqrt(mse)
-    mae = mean_absolute_error(y_real, y_pred)
     r2 = r2_score(y_real, y_pred)
     mape = np.mean(np.abs((y_real - y_pred) / y_real)) * 100
-    
-    metricas = {
-        "MSE": mse,
-        "RMSE": rmse,
-        "MAE": mae,
-        "R2": r2,
-        "MAPE": mape
-    }
-    
-    print("\n📊 Métricas de Avaliação:")
-    print(f"  MSE:  {mse:.4f}")
-    print(f"  RMSE: {rmse:.4f}")
-    print(f"  MAE:  {mae:.4f}")
-    print(f"  R²:   {r2:.4f}")
+
+    print(f"\n--- Métricas de Avaliação ---")
+    print(f"  MAE:  R$ {mae:.4f}")
+    print(f"  RMSE: R$ {rmse:.4f}")
     print(f"  MAPE: {mape:.2f}%")
-    
+    print(f"  R²:   {r2:.4f}")
+
     return {
-        "metricas": metricas,
+        "metricas": {"MAE": mae, "RMSE": rmse, "MAPE": mape, "MSE": mse, "R2": r2},
         "y_pred": y_pred,
         "y_real": y_real
     }
 
 
-def carregar_modelo(model_path: str = "models/lstm_model.keras") -> Sequential:
-    """
-    Carrega um modelo treinado do disco.
-    
-    Args:
-        model_path: Caminho do modelo salvo
-    
-    Returns:
-        Modelo Keras carregado
-    """
+def carregar_modelo(model_path="models/lstm_model.pth", input_size=1,
+                    hidden_size=50, num_layers=2):
+    """Carrega modelo salvo do disco."""
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Modelo não encontrado em {model_path}")
-    
-    model = load_model(model_path)
-    print(f"Modelo carregado de {model_path}")
-    return model
+        raise FileNotFoundError(f"Modelo não encontrado: {model_path}")
+
+    modelo = ModeloLSTM(input_size=input_size, hidden_size=hidden_size, num_layers=num_layers)
+    modelo.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=True))
+    modelo.eval()
+    print(f"Modelo carregado: {model_path}")
+    return modelo
