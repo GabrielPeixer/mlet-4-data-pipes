@@ -1,7 +1,7 @@
 # Tech Challenge - Predição de Ações com LSTM
 
 ## Descrição
-Modelo preditivo de redes neurais **Long Short-Term Memory (LSTM)** para predizer o valor de fechamento da ação da **Disney (DIS)**, com deploy em API REST via FastAPI.
+Modelo de deep learning **LSTM (Long Short-Term Memory)** para prever o preço de fechamento das ações da **Petrobras (PETR4.SA)**, com deploy em API REST via FastAPI.
 
 ## Estrutura do Projeto
 
@@ -15,12 +15,12 @@ mlet_4/
 ├── .gitignore
 ├── README.md
 ├── models/              # (gerado) Artefatos do modelo
-│   ├── lstm_model.keras
+│   ├── lstm_model.pth
 │   ├── scaler.pkl
 │   ├── config.json
 │   └── metricas.json
 └── data/                # (gerado) Dados e gráficos
-    ├── DIS_historico.csv
+    ├── PETR4.SA_historico.csv
     ├── treinamento_historico.png
     └── predicoes_vs_real.png
 ```
@@ -28,7 +28,7 @@ mlet_4/
 ## Requisitos
 
 - Python 3.10+
-- TensorFlow 2.16+
+- PyTorch
 - Conexão com internet (para coleta de dados via Yahoo Finance)
 
 ## Instalação
@@ -52,12 +52,12 @@ python train.py
 ```
 
 Este comando executa toda a pipeline:
-1. Coleta dados da Disney (DIS) via Yahoo Finance (2018-2024)
-2. Pré-processa e normaliza os dados
+1. Coleta dados da Petrobras (PETR4.SA) via Yahoo Finance (2018-2024)
+2. Pré-processa e normaliza os dados com MinMaxScaler
 3. Cria sequências temporais (janela de 60 dias)
-4. Treina modelo LSTM com 2 camadas (50 neurônios cada)
-5. Avalia o modelo e gera métricas
-6. Salva artefatos e gráficos
+4. Treina modelo LSTM com 2 camadas (50 neurônios) e early stopping
+5. Avalia o modelo com métricas MAE, RMSE, MAPE e R²
+6. Salva modelo treinado e gráficos
 
 ### 2. Iniciar a API
 
@@ -84,50 +84,43 @@ Documentação interativa (Swagger): http://localhost:8000/docs
 ```bash
 curl -X POST "http://localhost:8000/predict" \
   -H "Content-Type: application/json" \
-  -d '{"symbol": "DIS", "dias_futuros": 5}'
+  -d '{"symbol": "PETR4.SA", "dias_futuros": 5}'
 ```
 
 **Resposta:**
 ```json
 {
-  "symbol": "DIS",
-  "data_referencia": "2024-07-19",
+  "symbol": "PETR4.SA",
+  "data_referencia": "2024-12-30",
   "predicoes": [
-    {"dia": 1, "data_estimada": "2024-07-22", "preco_previsto": 98.45},
-    {"dia": 2, "data_estimada": "2024-07-23", "preco_previsto": 98.72},
-    ...
+    {"dia": 1, "data_estimada": "2024-12-31", "preco_previsto": 36.85},
+    {"dia": 2, "data_estimada": "2025-01-02", "preco_previsto": 36.92}
   ],
-  "modelo_info": {"RMSE": 3.21, "R2": 0.94, "MAPE": 2.8}
+  "modelo_info": {"MAE": 0.46, "RMSE": 0.60, "MAPE": 1.63, "R2": 0.95}
 }
 ```
 
 ## Arquitetura do Modelo
 
 ```
-Model: Sequential
-_________________________________________________________________
-Layer (type)                Output Shape              Param #
-=================================================================
-LSTM (50 units)             (None, 60, 50)            10,400
-Dropout (0.2)               (None, 60, 50)            0
-LSTM (50 units)             (None, 50)                20,200
-Dropout (0.2)               (None, 50)                0
-Dense (1 unit)              (None, 1)                 51
-=================================================================
-Total params: 30,651
+ModeloLSTM(
+  (lstm): LSTM(1, 50, num_layers=2, batch_first=True, dropout=0.2)
+  (fc): Linear(in_features=50, out_features=1, bias=True)
+)
+Total params: 31,051
 ```
 
 - **Input**: 60 dias de preços normalizados
 - **Output**: preço de fechamento do dia seguinte
 - **Otimizador**: Adam (lr=0.001)
 - **Loss**: Mean Squared Error
-- **Regularização**: Dropout 20% entre camadas
+- **Regularização**: Dropout 20% entre camadas LSTM
 - **Early Stopping**: patience=10 épocas
 
 ## Tecnologias Utilizadas
 
 - **Python** - Linguagem principal
-- **TensorFlow/Keras** - Framework de Deep Learning
+- **PyTorch** - Framework de Deep Learning
 - **yfinance** - Coleta de dados financeiros
 - **scikit-learn** - Normalização e métricas
 - **FastAPI** - Framework para API REST
