@@ -1,166 +1,162 @@
 """
-Script principal para executar toda a pipeline de treinamento.
-Desde a coleta de dados até a avaliação do modelo LSTM.
+Script de treinamento do modelo LSTM para prever preços da Petrobras (PETR4.SA).
+Executa: coleta de dados -> pré-processamento -> treinamento -> avaliação.
 """
 
 import os
 import json
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from data_pipeline import pipeline_dados
-from modelo_lstm import criar_modelo_lstm, treinar_modelo, avaliar_modelo
+from modelo_lstm import criar_modelo, treinar_modelo, avaliar_modelo
 
 
-def plotar_historico_treinamento(history, save_path: str = "data"):
-    """Plota as curvas de loss do treinamento."""
+def plotar_historico(historico, save_path="data"):
+    """Plota curvas de loss durante o treinamento."""
     os.makedirs(save_path, exist_ok=True)
-    
-    plt.figure(figsize=(12, 5))
-    
-    plt.subplot(1, 2, 1)
-    plt.plot(history.history['loss'], label='Train Loss')
-    plt.plot(history.history['val_loss'], label='Validation Loss')
-    plt.title('Loss durante o Treinamento')
-    plt.xlabel('Época')
-    plt.ylabel('MSE Loss')
-    plt.legend()
-    plt.grid(True)
-    
-    plt.subplot(1, 2, 2)
-    plt.plot(history.history['mae'], label='Train MAE')
-    plt.plot(history.history['val_mae'], label='Validation MAE')
-    plt.title('MAE durante o Treinamento')
-    plt.xlabel('Época')
-    plt.ylabel('MAE')
-    plt.legend()
-    plt.grid(True)
-    
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+
+    ax1.plot(historico['loss'], label='Treino')
+    ax1.plot(historico['val_loss'], label='Validação')
+    ax1.set_title('Loss (MSE)')
+    ax1.set_xlabel('Época')
+    ax1.set_ylabel('Loss')
+    ax1.legend()
+    ax1.grid(True)
+
+    ax2.plot(historico['mae'], label='Treino')
+    ax2.plot(historico['val_mae'], label='Validação')
+    ax2.set_title('MAE')
+    ax2.set_xlabel('Época')
+    ax2.set_ylabel('MAE')
+    ax2.legend()
+    ax2.grid(True)
+
     plt.tight_layout()
     plt.savefig(os.path.join(save_path, "treinamento_historico.png"), dpi=150)
     plt.close()
-    print(f"Gráfico de treinamento salvo em {save_path}/treinamento_historico.png")
+    print(f"Gráfico salvo: {save_path}/treinamento_historico.png")
 
 
-def plotar_predicoes(y_real, y_pred, symbol: str, save_path: str = "data"):
-    """Plota comparação entre valores reais e preditos."""
+def plotar_predicoes(y_real, y_pred, symbol, save_path="data"):
+    """Plota preço real vs predição do modelo."""
     os.makedirs(save_path, exist_ok=True)
-    
-    plt.figure(figsize=(14, 6))
-    plt.plot(y_real, label='Preço Real', color='blue', linewidth=1.5)
-    plt.plot(y_pred, label='Preço Predito', color='red', linewidth=1.5, alpha=0.8)
-    plt.title(f'Predição de Preço de Fechamento - {symbol}')
-    plt.xlabel('Dias (conjunto de teste)')
-    plt.ylabel('Preço (USD)')
+
+    plt.figure(figsize=(12, 5))
+    plt.plot(y_real, label='Preço Real', color='blue')
+    plt.plot(y_pred, label='Preço Predito', color='red', alpha=0.7)
+    plt.title(f'Predição LSTM - {symbol}')
+    plt.xlabel('Dias (teste)')
+    plt.ylabel('Preço (R$)')
     plt.legend()
     plt.grid(True, alpha=0.3)
-    
     plt.tight_layout()
     plt.savefig(os.path.join(save_path, "predicoes_vs_real.png"), dpi=150)
     plt.close()
-    print(f"Gráfico de predições salvo em {save_path}/predicoes_vs_real.png")
+    print(f"Gráfico salvo: {save_path}/predicoes_vs_real.png")
 
 
 def main():
-    """Executa a pipeline completa de treinamento."""
-    print("=" * 60)
-    print("   PIPELINE DE PREDIÇÃO DE AÇÕES COM LSTM")
-    print("=" * 60)
-    
-    # Configurações
-    CONFIG = {
-        "symbol": "DIS",
+    print("=" * 50)
+    print("  LSTM - Previsão de Preços Petrobras (PETR4)")
+    print("=" * 50)
+
+    # configurações do modelo
+    config = {
+        "symbol": "PETR4.SA",
         "start_date": "2018-01-01",
-        "end_date": "2024-07-20",
+        "end_date": "2024-12-31",
         "janela": 60,
         "proporcao_treino": 0.8,
         "epochs": 100,
         "batch_size": 32,
-        "units_lstm": [50, 50]
+        "hidden_size": 50,
+        "num_layers": 2,
+        "learning_rate": 0.001
     }
-    
-    print(f"\nConfiguração:")
-    for k, v in CONFIG.items():
+
+    print("\nConfigurações:")
+    for k, v in config.items():
         print(f"  {k}: {v}")
-    
-    # Salvar configuração
+
+    # salvar config
     os.makedirs("models", exist_ok=True)
     with open("models/config.json", "w") as f:
-        json.dump(CONFIG, f, indent=2)
-    
-    # 1. Pipeline de dados
-    print("\n" + "=" * 60)
-    print("   ETAPA 1: COLETA E PRÉ-PROCESSAMENTO")
-    print("=" * 60)
+        json.dump(config, f, indent=2)
+
+    # 1. coleta e preparação dos dados
+    print("\n" + "-" * 50)
+    print("  ETAPA 1: Coleta e pré-processamento")
+    print("-" * 50)
     dados = pipeline_dados(
-        symbol=CONFIG["symbol"],
-        start_date=CONFIG["start_date"],
-        end_date=CONFIG["end_date"],
-        janela=CONFIG["janela"],
-        proporcao_treino=CONFIG["proporcao_treino"]
+        symbol=config["symbol"],
+        start_date=config["start_date"],
+        end_date=config["end_date"],
+        janela=config["janela"],
+        proporcao_treino=config["proporcao_treino"]
     )
-    
-    # 2. Criar modelo
-    print("\n" + "=" * 60)
-    print("   ETAPA 2: CRIAÇÃO DO MODELO LSTM")
-    print("=" * 60)
+
+    # 2. criar modelo
+    print("\n" + "-" * 50)
+    print("  ETAPA 2: Criação do modelo LSTM")
+    print("-" * 50)
     input_shape = (dados["X_train"].shape[1], dados["X_train"].shape[2])
-    modelo = criar_modelo_lstm(input_shape, CONFIG["units_lstm"])
-    
-    # 3. Treinar modelo
-    print("\n" + "=" * 60)
-    print("   ETAPA 3: TREINAMENTO")
-    print("=" * 60)
-    resultado_treino = treinar_modelo(
-        model=modelo,
+    modelo = criar_modelo(input_shape, hidden_size=config["hidden_size"],
+                          num_layers=config["num_layers"])
+
+    # 3. treinar
+    print("\n" + "-" * 50)
+    print("  ETAPA 3: Treinamento")
+    print("-" * 50)
+    resultado = treinar_modelo(
+        modelo=modelo,
         X_train=dados["X_train"],
         y_train=dados["y_train"],
-        X_test=dados["X_test"],
-        y_test=dados["y_test"],
-        epochs=CONFIG["epochs"],
-        batch_size=CONFIG["batch_size"]
+        X_val=dados["X_test"],
+        y_val=dados["y_test"],
+        epochs=config["epochs"],
+        batch_size=config["batch_size"],
+        lr=config["learning_rate"]
     )
-    
-    # 4. Avaliar modelo
-    print("\n" + "=" * 60)
-    print("   ETAPA 4: AVALIAÇÃO")
-    print("=" * 60)
-    resultado_avaliacao = avaliar_modelo(
-        model=resultado_treino["model"],
+
+    # 4. avaliar
+    print("\n" + "-" * 50)
+    print("  ETAPA 4: Avaliação")
+    print("-" * 50)
+    avaliacao = avaliar_modelo(
+        modelo=resultado["model"],
         X_test=dados["X_test"],
         y_test=dados["y_test"],
         scaler=dados["scaler"]
     )
-    
-    # 5. Salvar métricas
-    metricas_serializaveis = {k: float(v) for k, v in resultado_avaliacao["metricas"].items()}
+
+    # salvar métricas
+    metricas = {k: float(v) for k, v in avaliacao["metricas"].items()}
     with open("models/metricas.json", "w") as f:
-        json.dump(metricas_serializaveis, f, indent=2)
+        json.dump(metricas, f, indent=2)
     print("\nMétricas salvas em models/metricas.json")
-    
-    # 6. Gerar gráficos
-    print("\n" + "=" * 60)
-    print("   ETAPA 5: VISUALIZAÇÕES")
-    print("=" * 60)
-    plotar_historico_treinamento(resultado_treino["history"])
-    plotar_predicoes(
-        resultado_avaliacao["y_real"],
-        resultado_avaliacao["y_pred"],
-        CONFIG["symbol"]
-    )
-    
-    print("\n" + "=" * 60)
-    print("   ✅ PIPELINE CONCLUÍDA COM SUCESSO!")
-    print("=" * 60)
+
+    # 5. gráficos
+    print("\n" + "-" * 50)
+    print("  ETAPA 5: Gráficos")
+    print("-" * 50)
+    plotar_historico(resultado["history"])
+    plotar_predicoes(avaliacao["y_real"], avaliacao["y_pred"], config["symbol"])
+
+    print("\n" + "=" * 50)
+    print("  Pipeline finalizada!")
+    print("=" * 50)
     print(f"\nArquivos gerados:")
-    print(f"  - models/lstm_model.keras (modelo treinado)")
-    print(f"  - models/scaler.pkl (normalizador)")
-    print(f"  - models/config.json (configurações)")
-    print(f"  - models/metricas.json (métricas de avaliação)")
-    print(f"  - data/{CONFIG['symbol']}_historico.csv (dados brutos)")
-    print(f"  - data/treinamento_historico.png (curvas de loss)")
-    print(f"  - data/predicoes_vs_real.png (predições vs real)")
-    print(f"\nPara iniciar a API de predição, execute:")
-    print(f"  python -m uvicorn api:app --reload --host 0.0.0.0 --port 8000")
+    print(f"  models/lstm_model.pth")
+    print(f"  models/scaler.pkl")
+    print(f"  models/config.json")
+    print(f"  models/metricas.json")
+    print(f"  data/{config['symbol']}_historico.csv")
+    print(f"  data/treinamento_historico.png")
+    print(f"  data/predicoes_vs_real.png")
 
 
 if __name__ == "__main__":
