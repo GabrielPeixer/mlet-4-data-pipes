@@ -1,6 +1,6 @@
 """
-API de predição de preços de ações usando o modelo LSTM treinado.
-Deploy via FastAPI com endpoint para predições em tempo real.
+API para previsão de preços de ações usando modelo LSTM treinado.
+Usa FastAPI para servir predições da Petrobras (PETR4.SA).
 """
 
 import os
@@ -8,17 +8,18 @@ import json
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import torch
 import joblib
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from tensorflow.keras.models import load_model
+from modelo_lstm import ModeloLSTM, carregar_modelo
 from datetime import datetime, timedelta
 
 
 # Inicializar FastAPI
 app = FastAPI(
-    title="API de Predição de Ações - LSTM",
-    description="API para predição de preço de fechamento de ações usando modelo LSTM",
+    title="API Predição Petrobras - LSTM",
+    description="Previsão de preço de fechamento da PETR4 com LSTM",
     version="1.0.0"
 )
 
@@ -32,7 +33,7 @@ def carregar_artefatos():
     """Carrega modelo, scaler e configurações ao iniciar a API."""
     global model, scaler, config
     
-    model_path = "models/lstm_model.keras"
+    model_path = "models/lstm_model.pth"
     scaler_path = "models/scaler.pkl"
     config_path = "models/config.json"
     
@@ -41,14 +42,17 @@ def carregar_artefatos():
             f"Modelo não encontrado em {model_path}. Execute train.py primeiro."
         )
     
-    model = load_model(model_path)
-    scaler = joblib.load(scaler_path)
-    
     with open(config_path, "r") as f:
         config = json.load(f)
     
+    hidden_size = config.get("hidden_size", 50)
+    num_layers = config.get("num_layers", 2)
+    model = carregar_modelo(model_path, input_size=1, hidden_size=hidden_size,
+                           num_layers=num_layers)
+    scaler = joblib.load(scaler_path)
+    
     print(f"Modelo carregado: {model_path}")
-    print(f"Configuração: symbol={config['symbol']}, janela={config['janela']}")
+    print(f"Ação: {config['symbol']} | Janela: {config['janela']} dias")
 
 
 # Carregar artefatos na inicialização
@@ -60,7 +64,7 @@ async def startup_event():
 # Schemas de request/response
 class PredictionRequest(BaseModel):
     symbol: str = Field(
-        default="DIS",
+        default="PETR4.SA",
         description="Símbolo da ação (deve ser o mesmo usado no treinamento)"
     )
     dias_futuros: int = Field(
@@ -169,9 +173,12 @@ async def predict(request: PredictionRequest):
     for dia in range(request.dias_futuros):
         # Preparar input para o modelo
         X_input = sequencia_atual[-janela:].reshape(1, janela, 1)
+        X_tensor = torch.FloatTensor(X_input)
         
         # Predizer
-        pred_normalizado = model.predict(X_input, verbose=0)
+        model.eval()
+        with torch.no_grad():
+            pred_normalizado = model(X_tensor).numpy()
         pred_valor = scaler.inverse_transform(pred_normalizado)[0][0]
         
         # Data estimada da predição (dias úteis)
