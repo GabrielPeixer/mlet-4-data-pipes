@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: lstm-petr4-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    branch: mlet4-data-pipes
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 8000
