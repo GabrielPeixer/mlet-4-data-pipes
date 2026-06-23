@@ -1,7 +1,24 @@
 # Tech Challenge - Predição de Ações com LSTM
 
+## 🚀 API em Produção
+
+A API está deployada no **Render** (containerizada via Docker) e disponível publicamente:
+
+| | URL |
+|---|---|
+| **Base** | https://lstm-petr4-api.onrender.com |
+| **Documentação (Swagger)** | https://lstm-petr4-api.onrender.com/docs |
+| **Health Check** | https://lstm-petr4-api.onrender.com/health |
+| **Predição (POST)** | https://lstm-petr4-api.onrender.com/predict |
+| **Histórico (GET)** | https://lstm-petr4-api.onrender.com/historico |
+| **Métricas (GET)** | https://lstm-petr4-api.onrender.com/metricas |
+
+> O plano gratuito do Render hiberna após 15 min de inatividade. A primeira requisição após esse período pode levar ~50 segundos para responder.
+
+---
+
 ## Descrição
-Modelo de deep learning **LSTM (Long Short-Term Memory)** para prever o preço de fechamento das ações da **Petrobras (PETR4.SA)**, com deploy em API REST via FastAPI.
+Modelo de deep learning **LSTM (Long Short-Term Memory)** para prever o preço de fechamento das ações da **Petrobras (PETR4.SA)**, com deploy em API REST via FastAPI containerizada com Docker no serviço de nuvem **Render**.
 
 ## Estrutura do Projeto
 
@@ -71,20 +88,32 @@ Documentação interativa (Swagger): http://localhost:8000/docs
 
 ## Endpoints da API
 
-| Método | Endpoint     | Descrição                              |
-|--------|-------------|----------------------------------------|
-| GET    | `/`         | Informações gerais da API              |
-| GET    | `/health`   | Status e informações do modelo         |
-| POST   | `/predict`  | Realizar predição de preço             |
-| GET    | `/historico`| Últimos N dias de preços históricos    |
-| GET    | `/metricas` | Métricas de avaliação do modelo        |
+Base URL produção: `https://lstm-petr4-api.onrender.com`
 
-### Exemplo de Predição
+| Método | Endpoint      | Descrição                              |
+|--------|--------------|----------------------------------------|
+| GET    | `/`          | Informações gerais da API              |
+| GET    | `/health`    | Status e informações do modelo         |
+| POST   | `/predict`   | Realizar predição de preço             |
+| GET    | `/historico` | Últimos N dias de preços históricos    |
+| GET    | `/metricas`  | Métricas de avaliação do modelo        |
+
+### Exemplo de Predição (busca automática via Yahoo Finance)
 
 ```bash
-curl -X POST "http://localhost:8000/predict" \
+curl -X POST "https://lstm-petr4-api.onrender.com/predict" \
   -H "Content-Type: application/json" \
   -d '{"symbol": "PETR4.SA", "dias_futuros": 5}'
+```
+
+### Exemplo com preços históricos fornecidos pelo usuário
+
+O campo `precos_historicos` aceita uma lista de preços de fechamento (do mais antigo ao mais recente). Deve conter ao menos 60 valores.
+
+```bash
+curl -X POST "https://lstm-petr4-api.onrender.com/predict" \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "PETR4.SA", "dias_futuros": 3, "precos_historicos": [35.1, 35.2, ..., 39.8]}'
 ```
 
 **Resposta:**
@@ -126,3 +155,5 @@ Total params: 31,051
 - **FastAPI** - Framework para API REST
 - **Pandas/NumPy** - Manipulação de dados
 - **Matplotlib** - Visualizações
+- **Docker** - Containerização da aplicação
+- **Render** - Plataforma de cloud deploy (container)
