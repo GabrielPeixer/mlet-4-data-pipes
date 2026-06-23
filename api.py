@@ -73,6 +73,15 @@ class PredictionRequest(BaseModel):
         le=30,
         description="Número de dias futuros para predizer (1 a 30)"
     )
+    precos_historicos: list[float] | None = Field(
+        default=None,
+        description=(
+            "Lista opcional de preços de fechamento históricos fornecidos pelo "
+            "usuário (do mais antigo para o mais recente). Se informado, deve "
+            "conter ao menos 'janela' valores e será usado no lugar dos dados "
+            "obtidos automaticamente via Yahoo Finance."
+        )
+    )
 
 
 class PredictionResponse(BaseModel):
@@ -136,32 +145,45 @@ async def predict(request: PredictionRequest):
     
     janela = config["janela"]
     
-    # Buscar dados recentes via yfinance
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=janela * 3)  # Margem para dias não úteis
-    
-    try:
-        df = yf.download(
-            request.symbol,
-            start=start_date.strftime("%Y-%m-%d"),
-            end=end_date.strftime("%Y-%m-%d")
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro ao buscar dados: {str(e)}")
-    
-    if df.empty or len(df) < janela:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Dados insuficientes. Necessário ao menos {janela} dias."
-        )
-    
-    # Flatten multi-level columns if present
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    
-    # Pegar últimos 'janela' dias de fechamento
-    precos_recentes = df["Close"].values[-janela:]
-    data_referencia = df.index[-1].strftime("%Y-%m-%d")
+    # Opção 1: usuário forneceu os preços históricos manualmente
+    if request.precos_historicos is not None:
+        if len(request.precos_historicos) < janela:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dados insuficientes. Necessário ao menos {janela} "
+                       f"preços históricos, recebidos {len(request.precos_historicos)}."
+            )
+        precos_recentes = np.array(request.precos_historicos[-janela:], dtype=float)
+        data_referencia = datetime.now().strftime("%Y-%m-%d")
+        fonte_dados = "fornecido_pelo_usuario"
+    else:
+        # Opção 2: buscar dados recentes via yfinance
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=janela * 3)  # Margem para dias não úteis
+
+        try:
+            df = yf.download(
+                request.symbol,
+                start=start_date.strftime("%Y-%m-%d"),
+                end=end_date.strftime("%Y-%m-%d")
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Erro ao buscar dados: {str(e)}")
+
+        if df.empty or len(df) < janela:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Dados insuficientes. Necessário ao menos {janela} dias."
+            )
+
+        # Flatten multi-level columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+
+        # Pegar últimos 'janela' dias de fechamento
+        precos_recentes = df["Close"].values[-janela:]
+        data_referencia = df.index[-1].strftime("%Y-%m-%d")
+        fonte_dados = "yahoo_finance"
     
     # Normalizar
     precos_normalizados = scaler.transform(precos_recentes.reshape(-1, 1))
@@ -199,7 +221,9 @@ async def predict(request: PredictionRequest):
     if os.path.exists(metricas_path):
         with open(metricas_path, "r") as f:
             modelo_info = json.load(f)
-    
+    modelo_info["fonte_dados"] = fonte_dados
+    modelo_info["dias_utilizados"] = janela
+
     return PredictionResponse(
         symbol=request.symbol,
         data_referencia=data_referencia,
