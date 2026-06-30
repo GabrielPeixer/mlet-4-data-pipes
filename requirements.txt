@@ -8,3 +8,5 @@ uvicorn
 joblib
 matplotlib
 pydantic
+psutil
+prometheus-fastapi-instrumentator

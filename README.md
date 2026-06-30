@@ -97,6 +97,8 @@ Base URL produção: `https://lstm-petr4-api.onrender.com`
 | POST   | `/predict`   | Realizar predição de preço             |
 | GET    | `/historico` | Últimos N dias de preços históricos    |
 | GET    | `/metricas`  | Métricas de avaliação do modelo        |
+| GET    | `/metrics`   | Métricas Prometheus (latência, contagem de requests, tamanho de payload) |
+| GET    | `/system-metrics` | Uso de CPU/memória/threads e uptime do processo da API |
 
 ### Exemplo de Predição (busca automática via Yahoo Finance)
 
@@ -157,3 +159,11 @@ Total params: 31,051
 - **Matplotlib** - Visualizações
 - **Docker** - Containerização da aplicação
 - **Render** - Plataforma de cloud deploy (container)
+
+## Monitoramento
+
+A API expõe instrumentação de observabilidade para acompanhar performance em produção:
+
+- **`GET /metrics`**: métricas no formato Prometheus (via `prometheus-fastapi-instrumentator`), incluindo latência por endpoint (histograma), contagem total de requisições por status/handler e tamanho de payloads. Pode ser coletado por um Prometheus e visualizado em Grafana.
+- **`GET /system-metrics`**: uso de CPU, memória (RSS/VMS), número de threads e uptime do processo, via `psutil`.
+- **Logging estruturado**: um middleware HTTP loga método, rota, status code e tempo de resposta (ms) de cada requisição, e adiciona o header `X-Process-Time-Ms` na resposta.

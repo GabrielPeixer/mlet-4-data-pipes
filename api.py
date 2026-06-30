@@ -5,15 +5,31 @@ Usa FastAPI para servir predições da Petrobras (PETR4.SA).
 
 import os
 import json
+import time
+import logging
 import numpy as np
 import pandas as pd
+import psutil
 import yfinance as yf
 import torch
 import joblib
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
+from prometheus_fastapi_instrumentator import Instrumentator
 from modelo_lstm import ModeloLSTM, carregar_modelo
 from datetime import datetime, timedelta
+
+
+# Logging estruturado (tempo de resposta de cada requisição)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+logger = logging.getLogger("lstm-api")
+
+# Processo atual, usado para medir uso de CPU/memória
+_processo = psutil.Process(os.getpid())
+_inicio_api = time.time()
 
 
 # Inicializar FastAPI
@@ -22,6 +38,25 @@ app = FastAPI(
     description="Previsão de preço de fechamento da PETR4 com LSTM",
     version="1.0.0"
 )
+
+# Instrumentação Prometheus: latência, contagem e requests em andamento,
+# expostos em /metrics no formato que Prometheus/Grafana conseguem coletar
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", tags=["Monitoramento"])
+
+
+@app.middleware("http")
+async def monitorar_requisicoes(request: Request, call_next):
+    """Mede e loga o tempo de resposta de cada requisição."""
+    inicio = time.time()
+    response = await call_next(request)
+    duracao_ms = (time.time() - inicio) * 1000
+    response.headers["X-Process-Time-Ms"] = f"{duracao_ms:.2f}"
+    logger.info(
+        f"{request.method} {request.url.path} | status={response.status_code} "
+        f"| tempo={duracao_ms:.2f}ms"
+    )
+    return response
+
 
 # Variáveis globais para o modelo e scaler
 model = None
@@ -109,7 +144,9 @@ async def root():
             "/health": "Status da API",
             "/predict": "Realizar predição (POST)",
             "/historico": "Últimos preços históricos (GET)",
-            "/metricas": "Métricas do modelo (GET)"
+            "/metricas": "Métricas do modelo (GET)",
+            "/metrics": "Métricas Prometheus (latência, contagem de requests)",
+            "/system-metrics": "Uso de CPU/memória do processo da API (GET)"
         }
     }
 
@@ -274,6 +311,26 @@ async def historico(dias: int = 30):
         "dias_solicitados": dias,
         "registros_retornados": len(historico_data),
         "dados": historico_data
+    }
+
+
+@app.get("/system-metrics", tags=["Monitoramento"])
+async def system_metrics():
+    """
+    Retorna uso de recursos do processo da API (CPU, memória, uptime).
+    Complementa o /metrics (Prometheus) para monitoramento de produção.
+    """
+    with _processo.oneshot():
+        memoria = _processo.memory_info()
+        cpu_percent = _processo.cpu_percent(interval=0.1)
+
+    return {
+        "uptime_segundos": round(time.time() - _inicio_api, 2),
+        "cpu_percent": cpu_percent,
+        "memoria_rss_mb": round(memoria.rss / (1024 * 1024), 2),
+        "memoria_vms_mb": round(memoria.vms / (1024 * 1024), 2),
+        "threads": _processo.num_threads(),
+        "modelo_carregado": model is not None
     }
 
 
