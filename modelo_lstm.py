@@ -35,9 +35,13 @@ class ModeloLSTM(nn.Module):
         out, _ = self.lstm(x)
         # pega só a saída do último timestep
         out = out[:, -1, :]
-        # camada linear final
-        out = self.fc(out)
-        return out
+        # camada linear final: aprende apenas o AJUSTE sobre o último preço
+        # conhecido (conexão residual), em vez do preço absoluto. Isso evita
+        # que a rede gaste capacidade reaprendendo o nível da série (que já
+        # é ~igual ao dia anterior) e foca no que realmente varia.
+        ajuste = self.fc(out)
+        ultimo_preco = x[:, -1, :]
+        return ultimo_preco + ajuste
 
 
 def criar_modelo(input_shape, hidden_size=50, num_layers=2):
@@ -166,6 +170,11 @@ def avaliar_modelo(modelo, X_test, y_test, scaler):
     """
     Avalia o modelo calculando MAE, RMSE, MAPE e R².
     Inverte a normalização para comparar em valores reais (R$).
+
+    Também compara o modelo com um baseline ingênuo (prever que o preço de
+    amanhã = preço de hoje) e calcula a acurácia direcional, pois em séries
+    de preços (quase um random walk) o R² sozinho costuma enganar: um
+    baseline "preguiçoso" já atinge R² alto só pela autocorrelação da série.
     """
     from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
@@ -180,23 +189,60 @@ def avaliar_modelo(modelo, X_test, y_test, scaler):
     y_pred = scaler.inverse_transform(pred_norm)
     y_real = scaler.inverse_transform(y_test.reshape(-1, 1))
 
-    # métricas
+    # métricas do modelo
     mae = mean_absolute_error(y_real, y_pred)
     mse = mean_squared_error(y_real, y_pred)
     rmse = np.sqrt(mse)
     r2 = r2_score(y_real, y_pred)
     mape = np.mean(np.abs((y_real - y_pred) / y_real)) * 100
 
-    print(f"\n--- Métricas de Avaliação ---")
+    # baseline ingênuo: "preço de amanhã = último preço conhecido" (último
+    # dia da janela de entrada, que é o dia anterior ao alvo)
+    ultimo_preco_norm = X_test[:, -1, :1].reshape(-1, 1)
+    y_naive = scaler.inverse_transform(ultimo_preco_norm)
+
+    mae_naive = mean_absolute_error(y_real, y_naive)
+    mse_naive = mean_squared_error(y_real, y_naive)
+    rmse_naive = np.sqrt(mse_naive)
+    r2_naive = r2_score(y_real, y_naive)
+    mape_naive = np.mean(np.abs((y_real - y_naive) / y_real)) * 100
+
+    # acurácia direcional: o modelo acerta se sobe/desce em relação ao
+    # último preço conhecido, na mesma direção do movimento real
+    direcao_real = np.sign(y_real - y_naive)
+    direcao_prevista = np.sign(y_pred - y_naive)
+    acuracia_direcional = np.mean(direcao_real == direcao_prevista) * 100
+
+    print(f"\n--- Métricas de Avaliação (modelo LSTM) ---")
     print(f"  MAE:  R$ {mae:.4f}")
     print(f"  RMSE: R$ {rmse:.4f}")
     print(f"  MAPE: {mape:.2f}%")
     print(f"  R²:   {r2:.4f}")
 
+    print(f"\n--- Baseline ingênuo (preço de amanhã = preço de hoje) ---")
+    print(f"  MAE:  R$ {mae_naive:.4f}")
+    print(f"  RMSE: R$ {rmse_naive:.4f}")
+    print(f"  MAPE: {mape_naive:.2f}%")
+    print(f"  R²:   {r2_naive:.4f}")
+
+    print(f"\n--- Acurácia direcional (sobe/desce) ---")
+    print(f"  Modelo acerta a direção em {acuracia_direcional:.2f}% dos dias")
+    if rmse >= rmse_naive:
+        print(f"  ⚠ O modelo NÃO supera o baseline ingênuo (RMSE pior ou igual).")
+    else:
+        melhora = (1 - rmse / rmse_naive) * 100
+        print(f"  O modelo supera o baseline ingênuo em RMSE ({melhora:.1f}% melhor).")
+
     return {
-        "metricas": {"MAE": mae, "RMSE": rmse, "MAPE": mape, "MSE": mse, "R2": r2},
+        "metricas": {
+            "MAE": mae, "RMSE": rmse, "MAPE": mape, "MSE": mse, "R2": r2,
+            "MAE_baseline": mae_naive, "RMSE_baseline": rmse_naive,
+            "MAPE_baseline": mape_naive, "MSE_baseline": mse_naive, "R2_baseline": r2_naive,
+            "Acuracia_Direcional": acuracia_direcional
+        },
         "y_pred": y_pred,
-        "y_real": y_real
+        "y_real": y_real,
+        "y_naive": y_naive
     }
 
 

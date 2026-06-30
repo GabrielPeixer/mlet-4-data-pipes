@@ -41,13 +41,16 @@ def plotar_historico(historico, save_path="data"):
     print(f"Gráfico salvo: {save_path}/treinamento_historico.png")
 
 
-def plotar_predicoes(y_real, y_pred, symbol, save_path="data"):
-    """Plota preço real vs predição do modelo."""
+def plotar_predicoes(y_real, y_pred, symbol, y_naive=None, save_path="data"):
+    """Plota preço real vs predição do modelo (e, opcionalmente, vs baseline ingênuo)."""
     os.makedirs(save_path, exist_ok=True)
 
     plt.figure(figsize=(12, 5))
     plt.plot(y_real, label='Preço Real', color='blue')
-    plt.plot(y_pred, label='Preço Predito', color='red', alpha=0.7)
+    plt.plot(y_pred, label='Preço Predito (LSTM)', color='red', alpha=0.7)
+    if y_naive is not None:
+        plt.plot(y_naive, label='Baseline Ingênuo (preço anterior)', color='gray',
+                 linestyle='--', alpha=0.6)
     plt.title(f'Predição LSTM - {symbol}')
     plt.xlabel('Dias (teste)')
     plt.ylabel('Preço (R$)')
@@ -144,7 +147,8 @@ def main():
     print("  ETAPA 5: Gráficos")
     print("-" * 50)
     plotar_historico(resultado["history"])
-    plotar_predicoes(avaliacao["y_real"], avaliacao["y_pred"], config["symbol"])
+    plotar_predicoes(avaliacao["y_real"], avaliacao["y_pred"], config["symbol"],
+                    y_naive=avaliacao["y_naive"])
 
     print("\n" + "=" * 50)
     print("  Pipeline finalizada!")

@@ -356,7 +356,13 @@ async def metricas():
             "RMSE": "Root Mean Squared Error - raiz do erro quadrático médio",
             "MAE": "Mean Absolute Error - erro absoluto médio",
             "R2": "Coeficiente de determinação (1.0 = perfeito)",
-            "MAPE": "Mean Absolute Percentage Error (%)"
+            "MAPE": "Mean Absolute Percentage Error (%)",
+            "MAE_baseline": "MAE do baseline ingênuo (prever preço de amanhã = preço de hoje)",
+            "RMSE_baseline": "RMSE do baseline ingênuo",
+            "MAPE_baseline": "MAPE do baseline ingênuo",
+            "MSE_baseline": "MSE do baseline ingênuo",
+            "R2_baseline": "R² do baseline ingênuo",
+            "Acuracia_Direcional": "% de dias em que o modelo acertou a direção (sobe/desce) em relação ao preço anterior"
         }
     }
 

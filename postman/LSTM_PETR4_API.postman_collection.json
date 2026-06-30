@@ -1,0 +1,379 @@
+{
+  "info": {
+    "_postman_id": "b6e6f0a0-1d2a-4e9a-9b3a-petr4lstmapi01",
+    "name": "LSTM PETR4 API",
+    "description": "Coleção para testar a API de previsão de preços da PETR4.SA (LSTM + FastAPI). Cobre predição, dados históricos, métricas do modelo e monitoramento (Prometheus/recursos).\n\nVariáveis:\n- base_url: URL base da API (produção ou local)\n- symbol: símbolo treinado no modelo (PETR4.SA)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://lstm-petr4-api.onrender.com", "type": "string" },
+    { "key": "symbol", "value": "PETR4.SA", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Info",
+      "item": [
+        {
+          "name": "Root - Informações da API",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/", "host": ["{{base_url}}"], "path": [""] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Tem campo api e endpoints', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('api');",
+                  "  pm.expect(json).to.have.property('endpoints');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/health", "host": ["{{base_url}}"], "path": ["health"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Modelo carregado', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.status).to.eql('healthy');",
+                  "  pm.expect(json.modelo_carregado).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Predição",
+      "item": [
+        {
+          "name": "Predict - Automático (Yahoo Finance)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"dias_futuros\": 5\n}"
+            },
+            "url": { "raw": "{{base_url}}/predict", "host": ["{{base_url}}"], "path": ["predict"] },
+            "description": "Busca automaticamente os últimos preços via Yahoo Finance e prevê os próximos N dias."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Retornou 5 predições', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.predicoes).to.have.lengthOf(5);",
+                  "  pm.expect(json.modelo_info.fonte_dados).to.eql('yahoo_finance');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Predict - Com preços históricos do usuário",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"dias_futuros\": 3,\n  \"precos_historicos\": [35.10, 35.22, 35.05, 35.40, 35.60, 35.55, 35.70, 35.80, 36.00, 35.95, 36.10, 36.25, 36.15, 36.30, 36.45, 36.50, 36.40, 36.60, 36.75, 36.80, 36.90, 37.00, 36.95, 37.10, 37.20, 37.15, 37.30, 37.40, 37.35, 37.50, 37.60, 37.55, 37.70, 37.80, 37.75, 37.90, 38.00, 37.95, 38.10, 38.20, 38.15, 38.30, 38.40, 38.35, 38.50, 38.60, 38.55, 38.70, 38.80, 38.75, 38.90, 39.00, 38.95, 39.10, 39.20, 39.15, 39.30, 39.40, 39.60, 39.80]\n}"
+            },
+            "url": { "raw": "{{base_url}}/predict", "host": ["{{base_url}}"], "path": ["predict"] },
+            "description": "Usa uma lista de preços fornecida manualmente (mínimo 60 valores, do mais antigo ao mais recente) em vez de buscar no Yahoo Finance."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Fonte de dados é o usuário', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.modelo_info.fonte_dados).to.eql('fornecido_pelo_usuario');",
+                  "  pm.expect(json.predicoes).to.have.lengthOf(3);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Predict - Erro: símbolo não suportado (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"AAPL\",\n  \"dias_futuros\": 1\n}"
+            },
+            "url": { "raw": "{{base_url}}/predict", "host": ["{{base_url}}"], "path": ["predict"] },
+            "description": "O modelo só foi treinado para o símbolo configurado (PETR4.SA); qualquer outro deve retornar 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - símbolo não suportado', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Predict - Erro: dados históricos insuficientes (400)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"dias_futuros\": 1,\n  \"precos_historicos\": [35.10, 35.22, 35.05]\n}"
+            },
+            "url": { "raw": "{{base_url}}/predict", "host": ["{{base_url}}"], "path": ["predict"] },
+            "description": "Envia menos de 60 preços históricos (janela do modelo), deve retornar 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - dados insuficientes', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Predict - Erro: dias_futuros fora do intervalo (422)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"{{symbol}}\",\n  \"dias_futuros\": 50\n}"
+            },
+            "url": { "raw": "{{base_url}}/predict", "host": ["{{base_url}}"], "path": ["predict"] },
+            "description": "dias_futuros aceita apenas valores entre 1 e 30; fora disso o FastAPI/Pydantic retorna 422 (erro de validação)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422 - validação Pydantic', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dados",
+      "item": [
+        {
+          "name": "Histórico - últimos 30 dias (padrão)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/historico",
+              "host": ["{{base_url}}"],
+              "path": ["historico"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Tem dados retornados', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('dados');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Histórico - dias customizado",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/historico?dias=10",
+              "host": ["{{base_url}}"],
+              "path": ["historico"],
+              "query": [{ "key": "dias", "value": "10" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Histórico - Erro: dias fora do intervalo (400)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/historico?dias=1000",
+              "host": ["{{base_url}}"],
+              "path": ["historico"],
+              "query": [{ "key": "dias", "value": "1000" }]
+            },
+            "description": "Parâmetro 'dias' deve estar entre 1 e 365."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400 - intervalo inválido', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Modelo",
+      "item": [
+        {
+          "name": "Métricas do modelo (MAE/RMSE/MAPE/R²)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/metricas", "host": ["{{base_url}}"], "path": ["metricas"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Contém métricas esperadas', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json.metricas).to.have.property('MAE');",
+                  "  pm.expect(json.metricas).to.have.property('RMSE');",
+                  "  pm.expect(json.metricas).to.have.property('MAPE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Monitoramento",
+      "item": [
+        {
+          "name": "Prometheus Metrics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/metrics", "host": ["{{base_url}}"], "path": ["metrics"] },
+            "description": "Métricas no formato Prometheus: latência por endpoint, contagem de requests, tamanho de payloads."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Formato Prometheus (texto)', () => {",
+                  "  pm.expect(pm.response.text()).to.include('http_request_duration');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "System Metrics (CPU/memória/uptime)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base_url}}/system-metrics", "host": ["{{base_url}}"], "path": ["system-metrics"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Contém uso de CPU e memória', () => {",
+                  "  const json = pm.response.json();",
+                  "  pm.expect(json).to.have.property('cpu_percent');",
+                  "  pm.expect(json).to.have.property('memoria_rss_mb');",
+                  "  pm.expect(json).to.have.property('uptime_segundos');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ]
+}

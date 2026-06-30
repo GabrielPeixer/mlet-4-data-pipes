@@ -73,8 +73,8 @@ Este comando executa toda a pipeline:
 2. Pré-processa e normaliza os dados com MinMaxScaler
 3. Cria sequências temporais (janela de 60 dias)
 4. Treina modelo LSTM com 2 camadas (50 neurônios) e early stopping
-5. Avalia o modelo com métricas MAE, RMSE, MAPE e R²
-6. Salva modelo treinado e gráficos
+5. Avalia o modelo com métricas MAE, RMSE, MAPE, R², **comparação com baseline ingênuo** e **acurácia direcional**
+6. Salva modelo treinado e gráficos (curva de loss e predições vs. real vs. baseline)
 
 ### 2. Iniciar a API
 
@@ -127,7 +127,7 @@ curl -X POST "https://lstm-petr4-api.onrender.com/predict" \
     {"dia": 1, "data_estimada": "2024-12-31", "preco_previsto": 36.85},
     {"dia": 2, "data_estimada": "2025-01-02", "preco_previsto": 36.92}
   ],
-  "modelo_info": {"MAE": 0.46, "RMSE": 0.60, "MAPE": 1.63, "R2": 0.95}
+  "modelo_info": {"MAE": 0.33, "RMSE": 0.45, "MAPE": 1.18, "R2": 0.97, "Acuracia_Direcional": 52.08}
 }
 ```
 
@@ -142,11 +142,41 @@ Total params: 31,051
 ```
 
 - **Input**: 60 dias de preços normalizados
-- **Output**: preço de fechamento do dia seguinte
+- **Output**: preço de fechamento do dia seguinte, calculado como `último_preço_conhecido + ajuste_aprendido_pela_lstm` (conexão residual)
 - **Otimizador**: Adam (lr=0.001)
 - **Loss**: Mean Squared Error
 - **Regularização**: Dropout 20% entre camadas LSTM
 - **Early Stopping**: patience=10 épocas
+
+### Por que conexão residual?
+
+Preços de ações no horizonte de 1 dia se comportam quase como um *random walk*: o preço de amanhã é estatisticamente muito próximo do de hoje. Por isso, métricas como R² e MAPE sozinhas enganam — um **baseline ingênuo** ("preço de amanhã = preço de hoje") já atinge R² ≈ 0.97 só pela autocorrelação da série.
+
+Na primeira versão do modelo (sem a conexão residual), o LSTM previa o preço absoluto e tinha que reaprender esse nível do zero, ficando **pior que o baseline ingênuo** (RMSE 1.62 vs. 0.45, R² 0.64, acurácia direcional 49.7% — ou seja, chute). Ao mudar a saída da rede para prever apenas o **ajuste sobre o último preço conhecido**, o modelo passou a empatar com o baseline em erro de preço e a superar discretamente o acaso na direção do movimento:
+
+| Métrica | Antes (sem residual) | Depois (com residual) | Baseline ingênuo |
+|---|---|---|---|
+| RMSE | R$ 1.62 | **R$ 0.45** | R$ 0.45 |
+| R² | 0.64 | **0.971** | 0.972 |
+| MAPE | 4.73% | **1.18%** | 1.16% |
+| Acurácia direcional | 49.7% (chute) | **52.1%** | — |
+
+## Avaliação do Modelo
+
+Além das métricas tradicionais (MAE, RMSE, MAPE, R²), o `train.py` calcula automaticamente:
+
+- **Baseline ingênuo**: métricas de simplesmente repetir o último preço conhecido, usado como referência mínima de qualidade.
+- **Acurácia direcional**: % de dias em que o modelo acerta se o preço vai subir ou descer em relação ao dia anterior (50% = equivalente a um chute).
+
+Gráficos gerados em `data/` após rodar `train.py`:
+
+**Curva de treino (loss e MAE por época):**
+
+![Histórico de treinamento](data/treinamento_historico.png)
+
+**Preço real vs. predição do modelo vs. baseline ingênuo (conjunto de teste):**
+
+![Predições vs. real](data/predicoes_vs_real.png)
 
 ## Tecnologias Utilizadas
 
