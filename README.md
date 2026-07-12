@@ -17,6 +17,12 @@ A API está deployada no **Render** (containerizada via Docker) e disponível pu
 
 ---
 
+## 🎥 Vídeo de Demonstração
+
+[Assista ao vídeo explicando a API](video/mlet4.mp4)
+
+---
+
 ## Descrição
 Modelo de deep learning **LSTM (Long Short-Term Memory)** para prever o preço de fechamento das ações da **Petrobras (PETR4.SA)**, com deploy em API REST via FastAPI containerizada com Docker no serviço de nuvem **Render**.
 
