@@ -19,7 +19,7 @@ A API está deployada no **Render** (containerizada via Docker) e disponível pu
 
 ## 🎥 Vídeo de Demonstração
 
-[Assista ao vídeo explicando a API](video/mlet4.mp4)
+https://github.com/user-attachments/assets/976ac4ec-f6be-458d-b3e5-0b31ac6b1101
 
 ---
 
